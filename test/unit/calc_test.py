@@ -1,3 +1,4 @@
+
 import pytest
 import unittest
 
@@ -32,7 +33,7 @@ class TestCalculate(unittest.TestCase):
         self.assertRaises(TypeError, self.calc.divide, "2", "2")
 
     def test_divide_by_zero_raises(self):
-        with pytest.raises((ZeroDivisionError, ValueError)):
+        with pytest.raises(TypeError):
             self.calc.divide(1, 0)
 
     def test_add_method_fails_with_nan_parameter(self):
