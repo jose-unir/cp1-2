@@ -29,7 +29,10 @@ class TestApi(unittest.TestCase):
         self.assertTrue(is_safe_url(url), f"URL no segura: {url}")
         response = urlopen(url, timeout=DEFAULT_TIMEOUT)
         self.assertEqual(response.status, http.client.OK, f"Error en la petición API a {url}")
-        f"{BASE_URL}/calc/multiply/6/7"
+        self.assertEqual(response.read().decode(), "3", "ERROR ADD")
+
+    def test_api_multiply(self):
+        url = f"{BASE_URL}/calc/multiply/6/7"
         self.assertTrue(is_safe_url(url), f"URL no segura: {url}")
         response = urlopen(url, timeout=DEFAULT_TIMEOUT)
         self.assertEqual(response.status, http.client.OK, f"Error en la petición API a {url}")
