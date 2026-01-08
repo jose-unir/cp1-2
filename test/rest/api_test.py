@@ -3,12 +3,20 @@ import os
 import unittest
 from urllib.request import urlopen
 from urllib.error import HTTPError
+from urllib.parse import urlparse
 
 import pytest
 
 BASE_URL = "http://localhost:5000"
 BASE_URL_MOCK = "http://localhost:9090"
 DEFAULT_TIMEOUT = 2  # in secs
+ALLOWED_HOSTS = {"localhost", "127.0.0.1"}
+
+
+def is_safe_url(url: str) -> bool:
+    """Valida que la URL apunte a un host permitido."""
+    parsed = urlparse(url)
+    return parsed.hostname in ALLOWED_HOST
 
 
 @pytest.mark.api
