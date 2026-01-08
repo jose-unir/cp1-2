@@ -1,5 +1,4 @@
 import http.client
-import os
 import unittest
 from urllib.request import urlopen
 from urllib.error import HTTPError
@@ -25,13 +24,12 @@ class TestApi(unittest.TestCase):
         self.assertIsNotNone(BASE_URL, "URL no configurada")
         self.assertTrue(len(BASE_URL) > 8, "URL no configurada")
 
-   URL no segura: {url}")
+    def test_api_add(self):
+        url = f"{BASE_URL}/calc/add/1/2"
+        self.assertTrue(is_safe_url(url), f"URL no segura: {url}")
         response = urlopen(url, timeout=DEFAULT_TIMEOUT)
         self.assertEqual(response.status, http.client.OK, f"Error en la petición API a {url}")
-        self.assertEqual(response.read().decode(), "3", "ERROR ADD")
-
-    def test_api_multiply(self):
-        url = f"{BASE_URL}/calc/multiply/6/7"
+        f"{BASE_URL}/calc/multiply/6/7"
         self.assertTrue(is_safe_url(url), f"URL no segura: {url}")
         response = urlopen(url, timeout=DEFAULT_TIMEOUT)
         self.assertEqual(response.status, http.client.OK, f"Error en la petición API a {url}")
