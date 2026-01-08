@@ -9,6 +9,7 @@ import pytest
 BASE_URL = "http://localhost:5000"
 BASE_URL_MOCK = "http://localhost:9090"
 DEFAULT_TIMEOUT = 2  # in secs
+
 ALLOWED_SCHEMES = {"http", "https"}
 ALLOWED_HOSTS = {"localhost", "127.0.0.1"}
 
@@ -21,7 +22,7 @@ def is_safe_url(url: str) -> bool:
 
 @pytest.mark.api
 class TestApi(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.assertIsNotNone(BASE_URL, "URL no configurada")
         self.assertTrue(len(BASE_URL) > 8, "URL no configurada")
 
@@ -32,7 +33,10 @@ class TestApi(unittest.TestCase):
         self.assertEqual(response.status, http.client.OK, f"Error en la petición API a {url}")
         self.assertEqual(response.read().decode(), "3", "ERROR ADD")
 
-   )
+    def test_api_multiply(self):
+        url = f"{BASE_URL}/calc/multiply/6/7"
+        self.assertTrue(is_safe_url(url), f"URL no segura: {url}")
+        response = urlopen(url, timeout=DEFAULT_TIMEOUT)
         self.assertEqual(response.status, http.client.OK, f"Error en la petición API a {url}")
         self.assertEqual(response.read().decode(), "42", "ERROR MULTIPLY")
 
@@ -51,7 +55,11 @@ class TestApi(unittest.TestCase):
             self.fail("Se espera HTTP 406 para división por cero")
         except HTTPError as e:
             status_code = getattr(e, "code", None)
-            self.assertEqual(status_code, http.client.NOT_ACCEPTABLE, f"Se esperaba 406, recibido {status_code}")
+            self.assertEqual(
+                status_code,
+                http.client.NOT_ACCEPTABLE,
+                f"Se esperaba 406, recibido {status_code}",
+            )
 
     def test_api_sqrt(self):
         url = f"{BASE_URL_MOCK}/calc/sqrt/64"
