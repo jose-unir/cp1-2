@@ -1,78 +1,224 @@
 pipeline {
-    agent any
+  agent none
 
-    options { skipDefaultCheckout() }
+  stages {
 
-     stages {
-        stage('Get Code') {
-            steps {
-                // Obtener código del repo
-                git 'https://github.com/anieto-unir/helloworld.git'
-	            echo WORKSPACE
-                bat 'dir'
-                stash name:'code', includes:'**'
-            }
-        }
-    
-        stage('Build') {
-           steps {
-              echo 'Eyyy, esto es Python. No hay que compilar nada!!!'
-           }
-        }
-        
-        stage('Tests')
-        {
-            parallel
-            {
-                stage('Unit') {
-                    agent {label 'agent1'}
-                    steps {
-                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                            unstash name:'code'
-                            sh '''
-                                ls -la
-                                export PYTHONPATH=${WORKSPACE}
-                                /home/agent1/.local/bin/pytest --junitxml=result-unit.xml test/unit
-                            '''
-                            stash name:'unit-res', includes:'result-unit.xml'
-                       }
-                    }
-                }   
-                
-                
-                stage('Rest') {
-                    agent {label 'agent2'}
-                    steps {
-                      catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                        unstash name:'code'
-                        sh '''
-                            export FLASK_APP=app/api.py                          
-                            /home/agent2/.local/bin/flask run &
-
-                            sleep 4
-
-                            java -jar /home/agent2/wiremock/wiremock-standalone-3.3.1.jar --port 9090 --root-dir /home/agent2/wiremock &
-                            export PYTHONPATH=${WORKSPACE}
-                            
-                            sleep 15
-                            
-                            /home/agent2/.local/bin/pytest --junitxml=result-rest.xml test/rest
-                        '''
-                      }
-                      stash name:'rest-res', includes:'result-rest.xml'
-                    }    
-                }                
-                
-            }
-        }
-
-        stage('Results') {
-            steps {
-                unstash name:'unit-res'
-                unstash name:'rest-res'
-                junit 'result*.xml' 
-            }
-        }
-     
+    stage('Get Code') {
+      agent { label 'Linux' }
+      steps {
+        sh '''
+          whoami
+          hostname
+          echo "${WORKSPACE}"
+        '''
+        git branch: 'master', url: 'https://github.com/jose-unir/cp1-2.git'
+        stash name: 'source', includes: '**/*', excludes: '**/.git/**'
+      }
+      post { always { cleanWs(deleteDirs: true) } }
     }
+
+    stage('Static & Security') {
+      parallel {
+
+        stage('Static') {
+          agent { label 'Linux' }
+          steps {
+            unstash 'source'
+            sh '''
+              whoami
+              hostname
+              echo "${WORKSPACE}"
+              flake8 --exit-zero --format=pylint app > flake8.out
+            '''
+            catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+              recordIssues(
+                id: 'flake8',
+                qualityGates: [
+                  [type: 'TOTAL', threshold: 8,  criticality: 'UNSTABLE'],
+                  [type: 'TOTAL', threshold: 10, criticality: 'FAILURE']
+                ],
+                sourceCodeRetention: 'LAST_BUILD',
+                tools: [pyLint(pattern: 'flake8.out')],
+                enabledForFailure: true,
+              )
+            }
+            stash name: 'static-report', includes: 'flake8.out', allowEmpty: true
+          }
+        }
+
+        stage('Security') {
+          agent { label 'Linux2' }
+          steps {
+            unstash 'source'
+            sh '''
+              whoami
+              hostname
+              echo "${WORKSPACE}"
+              bandit -r . -x test -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}" || true
+            '''
+            catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+              recordIssues(
+                id: 'bandit',
+                qualityGates: [
+                  [type: 'TOTAL', threshold: 2, criticality: 'UNSTABLE'],
+                  [type: 'TOTAL', threshold: 4, criticality: 'FAILURE']
+                ],
+                sourceCodeRetention: 'LAST_BUILD',
+                tools: [pyLint(pattern: 'bandit.out')],
+                enabledForFailure: true,
+              )
+            }
+            stash name: 'security-report', includes: 'bandit.out', allowEmpty: true
+          }
+        }
+      }
+    }
+
+    stage('Tests') {
+      parallel {
+
+        stage('Unit & Coverage') {
+          agent { label 'Linux2' }
+          steps {
+            unstash 'source'
+            sh '''
+              whoami
+              hostname
+              echo "${WORKSPACE}"
+              export PYTHONPATH=.
+              python3 -m coverage run --branch --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit --junitxml=result-unit.xml
+              python3 -m coverage xml -o coverage.xml
+            '''
+            junit allowEmptyResults: true, testResults: 'result-unit.xml'
+            catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+              recordCoverage(
+                qualityGates: [
+                  [metric: 'LINE',   threshold: 95.0, criticality: 'UNSTABLE'],
+                  [metric: 'LINE',   threshold: 85.0, criticality: 'FAILURE'],
+                  [metric: 'BRANCH', threshold: 90.0, criticality: 'UNSTABLE'],
+                  [metric: 'BRANCH', threshold: 80.0, criticality: 'FAILURE']
+                ],
+                tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']],
+                enabledForFailure: true
+              )
+            }
+            stash name: 'unit-report', includes: 'result-unit.xml,coverage.xml', allowEmpty: true
+          }
+        }
+
+        stage('REST') {
+          agent { label 'Linux3' }
+          steps {
+            unstash 'source'
+            sh '''
+              whoami
+              hostname
+              echo "${WORKSPACE}"
+
+              set -e
+              export PYTHONPATH=.
+              export FLASK_APP=app/api.py
+              export FLASK_PORT=5001
+
+              flask run --port ${FLASK_PORT} > flask.log 2>&1 & FLASK_PID=$!
+              sleep 2
+
+              java -jar /home/josito/.git/helloworld/test/wiremock/wiremock-standalone-3.13.2.jar \
+                --port 9090 --root-dir /home/josito/.git/helloworld/test/wiremock > wiremock.log 2>&1 & WIREMOCK_PID=$!
+
+              echo $FLASK_PID > flask.pid
+              echo $WIREMOCK_PID > wiremock.pid
+
+              for i in $(seq 1 10); do
+                curl -s http://localhost:9090/__admin/mappings >/dev/null 2>&1 && break
+                sleep 1
+              done
+
+              pytest --junitxml=result-rest.xml test/rest
+            '''
+            junit allowEmptyResults: true, testResults: 'result-rest.xml'
+            stash name: 'rest-report', includes: 'result-rest.xml,flask.log,wiremock.log', allowEmpty: true
+          }
+          post {
+            always {
+              sh '''
+                [ -f flask.pid ] && kill "$(cat flask.pid)" 2>/dev/null || true
+                [ -f wiremock.pid ] && kill "$(cat wiremock.pid)" 2>/dev/null || true
+                rm -f flask.pid wiremock.pid
+              '''
+            }
+          }
+        }
+
+        stage('Performance') {
+          agent { label 'Linux2' }
+          steps {
+            unstash 'source'
+            catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+              sh '''
+                whoami
+                hostname
+                echo "${WORKSPACE}"
+
+                set -e
+                export PYTHONPATH=.
+                export FLASK_APP=app/api.py
+                export FLASK_PORT=5000
+
+                flask run --port ${FLASK_PORT} > flask_performance.log 2>&1 & FLASK_PID=$!
+                sleep 2
+
+                java -jar /home/josito/.git/helloworld/test/wiremock/wiremock-standalone-3.13.2.jar \
+                  --port 9090 --root-dir /home/josito/.git/helloworld/test/wiremock > wiremock_performance.log 2>&1 & WIREMOCK_PID=$!
+
+                echo $FLASK_PID > flask_performance.pid
+                echo $WIREMOCK_PID > wiremock_performance.pid
+
+                for i in $(seq 1 10); do
+                  curl -s http://localhost:9090/__admin/mappings >/dev/null 2>&1 && break
+                  sleep 1
+                done
+
+                jmeter -n -t test/jmeter/flask.jmx -l flask.jtl
+              '''
+              perfReport sourceDataFiles: 'flask.jtl', modePerformancePerTestCase: true
+            }
+            stash name: 'perf-report', includes: 'flask.jtl,flask_performance.log,wiremock_performance.log', allowEmpty: true
+          }
+          post {
+            always {
+              sh '''
+                [ -f flask_performance.pid ] && kill "$(cat flask_performance.pid)" 2>/dev/null || true
+                [ -f wiremock_performance.pid ] && kill "$(cat wiremock_performance.pid)" 2>/dev/null || true
+                rm -f flask_performance.pid wiremock_performance.pid
+              '''
+            }
+          }
+        }
+      }
+    }
+
+    stage('Cleanup by Agent') {
+      parallel {
+        stage('Cleanup Linux') {
+          agent { label 'Linux' }
+          steps {
+            cleanWs(deleteDirs: true)
+          }
+        }
+        stage('Cleanup Linux2') {
+          agent { label 'Linux2' }
+          steps {
+            cleanWs(deleteDirs: true)
+          }
+        }
+        stage('Cleanup Linux3') {
+          agent { label 'Linux3' }
+          steps {
+            cleanWs(deleteDirs: true)
+          }
+        }
+      }
+    }
+  }
 }
