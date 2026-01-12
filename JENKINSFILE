@@ -160,7 +160,7 @@ pipeline {
                 export FLASK_PORT=5000
 
                 flask run --port ${FLASK_PORT} > flask_performance.log 2>&1 & FLASK_PID=$!
-                sleep 2
+                sleep 5
 
                 java -jar /home/josito/.git/helloworld/test/wiremock/wiremock-standalone-3.13.2.jar \
                   --port 9090 --root-dir /home/josito/.git/helloworld/test/wiremock > wiremock_performance.log 2>&1 & WIREMOCK_PID=$!
